@@ -4,6 +4,7 @@ from __future__ import annotations
 import re
 import sqlite3
 import uuid
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -141,6 +142,10 @@ def generate_sql(intent: dict[str, Any]) -> str:
         source, time_field, predicate, expression = definitions["orders"]
         ctes.append(f"m_orders AS (SELECT {', '.join(_projection(dimensions)[0])}, {expression} AS orders FROM {source} WHERE {time_field} >= :start AND {time_field} < :end AND {predicate} GROUP BY {group})")
         aliases.append("m_orders")
+    if "aov" in metrics and "m_revenue" not in aliases:
+        source, time_field, predicate, expression = definitions["revenue"]
+        ctes.append(f"m_revenue AS (SELECT {', '.join(_projection(dimensions)[0])}, {expression} AS revenue FROM {source} WHERE {time_field} >= :start AND {time_field} < :end AND {predicate} GROUP BY {group})")
+        aliases.append("m_revenue")
     joins = []
     for alias in aliases:
         condition = " AND ".join(f"s.{d}={alias}.{d}" for d in dim_names) if dim_names else "s._key=1"
@@ -177,7 +182,7 @@ def _run(request: AnalyzeRequest) -> dict[str, Any]:
     if intent["need_clarification"]:
         return {"intent": intent, "semantic_matches": matches, "next_action": "clarify", "clarification_question": intent["clarification_question"], "data_version": DEMO_DATA_VERSION}
     sql = generate_sql(intent)
-    allowed = {"users", "user_events", "orders", "products", "spine"} | {f"m_{m}" for m in intent["metrics"]} | {"m_active_users", "m_paid_users", "m_orders"}
+    allowed = {"users", "user_events", "orders", "products", "spine", "m_active_users", "m_paid_users", "m_orders", "m_revenue"} | {f"m_{m}" for m in intent["metrics"]}
     policy = SecurityPolicy.create(allowed_tables=allowed, required_time_columns=("register_time", "event_time", "order_time"), max_rows=1000, timeout_ms=5000)
     executor = SQLiteExecutor(str(DB_PATH), policy)
     try:
@@ -192,11 +197,12 @@ def _run(request: AnalyzeRequest) -> dict[str, Any]:
 
 
 def create_app() -> FastAPI:
-    api = FastAPI(title="AI Data Operations Agent", version="1.0.0")
-
-    @api.on_event("startup")
-    def startup() -> None:
+    @asynccontextmanager
+    async def lifespan(_: FastAPI):
         ensure_database()
+        yield
+
+    api = FastAPI(title="AI Data Operations Agent", version="1.0.0", lifespan=lifespan)
 
     @api.post("/api/v1/analyze", response_model=AnalyzeResponse, status_code=202)
     def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
