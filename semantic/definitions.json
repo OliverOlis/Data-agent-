@@ -1,0 +1,22 @@
+{
+  "version": "semantic-v1",
+  "metrics": [
+    {"name":"registered_users","aliases":["注册用户数","注册用户","新增用户"],"definition":"时间范围内注册用户去重计数","formula":"COUNT(DISTINCT users.user_id)","grain":"user","allowed_dimensions":["channel","city","device_type","month"],"time_field":"users.register_time","examples":["最近三个月各渠道注册用户数"]},
+    {"name":"active_users","aliases":["活跃用户数","活跃用户"],"definition":"时间范围内发生有效 active 行为的用户去重计数","formula":"COUNT(DISTINCT CASE WHEN user_events.event_type = 'active' THEN user_events.user_id END)","grain":"user","allowed_dimensions":["channel","city","device_type","month"],"time_field":"user_events.event_time","filters":["event_type = 'active'"],"examples":["各城市活跃用户数"]},
+    {"name":"paid_users","aliases":["付费用户数","付费人数"],"definition":"时间范围内存在已支付订单的用户去重计数","formula":"COUNT(DISTINCT CASE WHEN orders.status = 'paid' THEN orders.user_id END)","grain":"user","allowed_dimensions":["channel","city","device_type","month"],"time_field":"orders.order_time","filters":["orders.status = 'paid'"],"examples":["各渠道付费用户数"]},
+    {"name":"orders","aliases":["订单数","支付订单数"],"definition":"时间范围内 status=paid 的订单数，退款订单排除","formula":"COUNT(DISTINCT CASE WHEN orders.status = 'paid' THEN orders.order_id END)","grain":"order","allowed_dimensions":["channel","city","device_type","month"],"time_field":"orders.order_time","filters":["orders.status = 'paid'"],"examples":["每月支付订单数"]},
+    {"name":"revenue","aliases":["销售额","GMV","成交额"],"definition":"已支付订单金额之和，币种为 CNY，退款订单排除","formula":"SUM(CASE WHEN orders.status = 'paid' THEN orders.amount ELSE 0 END)","grain":"order","allowed_dimensions":["channel","city","device_type","category","month"],"time_field":"orders.order_time","filters":["orders.status = 'paid'"],"examples":["最近三个月各渠道销售额趋势"]},
+    {"name":"pay_rate","aliases":["付费率","支付率"],"definition":"付费用户数除以活跃用户数，分母为 0 返回 NULL","formula":"paid_users / NULLIF(active_users, 0)","grain":"user","allowed_dimensions":["channel","city","device_type","month"],"time_field":"orders.order_time","denominator":"active_users","null_policy":"NULL when denominator is zero","examples":["最近三个月各渠道付费率变化"]},
+    {"name":"aov","aliases":["客单价","平均订单金额"],"definition":"销售额除以已支付订单数","formula":"revenue / NULLIF(orders, 0)","grain":"order","allowed_dimensions":["channel","city","device_type","category","month"],"time_field":"orders.order_time","denominator":"orders","null_policy":"NULL when denominator is zero","examples":["不同城市客单价"]},
+    {"name":"repeat_users","aliases":["复购用户数","复购人数"],"definition":"周期内已支付次数大于等于 2 的用户数","formula":"COUNT(DISTINCT user_id) FILTER (WHERE paid_order_count >= 2)","grain":"user","allowed_dimensions":["channel","city","month"],"time_field":"orders.order_time","filters":["orders.status = 'paid'"],"examples":["各渠道复购用户数"]},
+    {"name":"repeat_rate","aliases":["复购率"],"definition":"复购用户数除以付费用户数","formula":"repeat_users / NULLIF(paid_users, 0)","grain":"user","allowed_dimensions":["channel","city","month"],"time_field":"orders.order_time","denominator":"paid_users","examples":["各城市复购率"]},
+    {"name":"conversion_rate","aliases":["转化率","转化"],"definition":"起点事件到终点事件的窗口内转化率，必须指定事件和窗口","formula":"converted_users / NULLIF(start_users, 0)","grain":"user","allowed_dimensions":["channel","city","device_type","month"],"time_field":"user_events.event_time","denominator":"start_users","null_policy":"clarify missing event/window","examples":["注册后7天支付转化"]}
+  ],
+  "dimensions": [
+    {"name":"channel","source":"users.channel","data_type":"text","aliases":["渠道"]},
+    {"name":"city","source":"users.city","data_type":"text","aliases":["城市"]},
+    {"name":"device_type","source":"users.device_type","data_type":"text","aliases":["设备","设备类型"]},
+    {"name":"category","source":"products.category","data_type":"text","aliases":["品类","商品分类"]},
+    {"name":"month","source":"date_trunc_month(time)","data_type":"date","aliases":["月份","按月"]}
+  ]
+}
